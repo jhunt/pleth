@@ -1,0 +1,179 @@
+#!/usr/bin/env -S carton exec perl
+# vim:ft=perl
+use strict;
+use warnings;
+
+#
+# rebuild - Regenerate on-disk structures, for the pre-redis
+# version of Pleth.  Might not be terribly valuable except
+# as a window into what once was.
+# -jh
+#
+
+use Data::Dumper;
+use YAML qw/LoadFile Dump/;
+use Digest::SHA1 qw/sha1_hex/;
+use Image::ExifTool qw/:Public/;
+use File::Basename qw/basename/;
+
+my %TAGS;
+my %META;
+sub walk {
+	my ($dir) = @_;
+
+	my $meta = -f "$dir/meta.yml" ? LoadFile("$dir/meta.yml") : {tags => []};
+	if (!@{$meta->{tags} || []}) {
+		$meta->{tags} = ["Random $dir"];
+	}
+
+	opendir(my $dh, $dir)
+		or die "$dir: $!\n";
+
+	while ((my $f = readdir($dh))) {
+		next if $f =~ m/^\./;
+
+		if (-d "$dir/$f") {
+			walk("$dir/$f");
+			next;
+		}
+
+		next unless -f "$dir/$f";
+		next if $f =~ m/\.yml$/;
+
+		for my $tag (@{$meta->{tags}}) {
+			push @{$TAGS{$tag}}, "$dir/$f";
+		}
+		$META{"$dir/$f"} = $meta;
+	}
+
+	closedir($dh);
+}
+
+chdir($ARGV[0]) if @ARGV;
+
+walk($ARGV[1] || '.');
+
+print <<EOF;
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <header>
+    <h1>pleth</h1>
+  </header>
+
+  <div id="pleth">
+EOF
+
+system('rm -rf ./p/');
+for my $tag (sort keys %TAGS) {
+	print '<div class="row"><h2>'.$tag.'</h2><ol>';
+	for my $url (@{ $TAGS{$tag} }) {
+		my $id = sha1_hex("$url");
+		build($id, "", $url, $META{$url});
+	}
+	print '</ol></div>';
+}
+
+print <<EOF;
+  </div>
+
+  <footer>
+    <p>Copyright &copy; 2021 Hunt Productions, Inc.</p>
+  </footer>
+</body>
+</html>
+EOF
+
+sub build {
+	my ($id, $base, $url, $meta) = @_;
+	my $file = basename($url);
+
+	my $a = substr($id, 0, 6);
+	my $b = substr($id, 7, 15);
+	mkdir("p");
+	mkdir("p/$a");
+	mkdir("p/$a/$b");
+	mkdir("p/$a/$b/$id");
+	open my $fh, ">", "p/$a/$b/$id/index.html"
+		or die "p/$a/$b/$id/index.html: $!\n";
+
+	my $description = '';
+	if ($meta && $meta->{files} && $meta->{files}{$file} && $meta->{files}{$file}{description}) {
+		$description = $meta->{files}{$file}{description};
+	} elsif ($meta && $meta->{description}) {
+		$description = $meta->{description};
+	}
+	my $meta_description = $description || '(no description provided)';
+
+	if ($file =~ m/\.(jpg|png|jpeg|gif|webp|tiff)$/i) {
+		my $exif = ImageInfo($url);
+		print $fh <<EOF;
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="$base/style.css">
+  <meta property="og:image" content="http://home:8888$base/$url">
+  <meta property="og:title" content="$file">
+  <meta property="og:image:width" content="$exif->{ImageWidth}">
+  <meta property="og:image:height" content="$exif->{ImageHeight}">
+  <meta property="og:description" content="$meta_description">
+</head>
+<body>
+
+  <header>
+    <h1><a href="$base/">pleth</a></h1>
+  </header>
+
+  <div id="pleth" class="detail">
+    <img src="$base/$url">
+    <p>$description</p>
+    <h2>Details</h2>
+EOF
+
+		print $fh '<pre>';
+		print $fh Dump($exif);
+		print $fh '</pre>';
+
+		print $fh <<EOF;
+  </div>
+</body>
+</html>
+EOF
+
+	} elsif ($file =~ m/\.(mp4|mov)$/i) {
+		print $fh <<EOF;
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="$base/style.css">
+  <meta property="og:title" content="$file">
+  <meta property="og:description" content="$meta_description">
+</head>
+<body>
+
+  <header>
+    <h1><a href="$base/">pleth</a></h1>
+  </header>
+
+  <div id="pleth" class="detail">
+    <video controls>
+      <source src="$base/$url">
+    </video>
+    <p>$description</p>
+  </div>
+</body>
+</html>
+EOF
+
+	}
+
+	close $fh;
+	print '<li><a href="p/'.$a.'/'.$b.'/'.$id.'/index.html"><img src="'.$url.'"></a></li>';
+}

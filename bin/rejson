@@ -1,0 +1,82 @@
+#!/usr/bin/env -S carton exec perl
+# vim:ft=perl
+use strict;
+use warnings;
+
+#
+# rejson - In the same spirit as `bin/rebuild`, this script
+# rebuilds on-disk metadata structures, as a big JSON file.
+# Might not be terribly valuable except as a window into what
+# once was.
+# -jh
+#
+
+use Data::Dumper;
+use YAML qw/LoadFile Dump/;
+use Digest::SHA1 qw/sha1_hex/;
+use Image::ExifTool qw/:Public/;
+use File::Basename qw/basename/;
+
+my %TAGS;
+my %META;
+sub walk {
+	my ($dir) = @_;
+
+	my $meta = -f "$dir/meta.yml" ? LoadFile("$dir/meta.yml") : {tags => []};
+	if (!@{$meta->{tags} || []}) {
+		$meta->{tags} = ["Unsorted"];
+	}
+
+	opendir(my $dh, $dir)
+		or die "$dir: $!\n";
+
+	while ((my $f = readdir($dh))) {
+		next if $f =~ m/^\./;
+
+		if (-d "$dir/$f") {
+			walk("$dir/$f");
+			next;
+		}
+
+		next unless -f "$dir/$f";
+		next if $f =~ m/\.yml$/;
+
+		for my $tag (@{$meta->{tags}}) {
+			push @{$TAGS{$tag}}, "$dir/$f";
+		}
+		$META{"$dir/$f"} = $meta;
+	}
+
+	closedir($dh);
+}
+
+chdir($ARGV[0]) if @ARGV;
+
+walk($ARGV[1] || '.');
+
+my %URL;
+for my $tag (sort keys %TAGS) {
+	my @ids;
+	for my $url (@{ $TAGS{$tag} }) {
+		my $id = sha1_hex("$url");
+		$URL{$id} = $url;
+		push @ids, $id;
+	}
+	$TAGS{$tag} = \@ids;
+}
+
+my @MON = qw/_ January February March April May June July August September October November December/;
+for my $id (sort keys %URL) {
+	my $url = $URL{$id};
+	my $exif = ImageInfo($url);
+	if ($exif->{CreateDate}) {
+		$exif->{CreateDate} =~ m/^(\d{4}):(\d{2})/;
+		my ($YYYY, $MM) = ($1, $2);
+		my $MMM = $MON[$MM+0];
+
+		push @{$TAGS{$YYYY}}, $id;
+		push @{$TAGS{"$MMM $YYYY"}}, $id;
+	}
+}
+
+print Dump({ ob => \%URL, tag => \%TAGS });

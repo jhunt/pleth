@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="/style.css">
+  <script type="text/javascript" src="/classify/pleth.js"></script>
+</head>
+<body>
+
+  <header>
+    <h1>pleth</h1>
+  </header>
+
+  <div id="pleth">Loading...</div>
+  <template rel="classify">
+    <div class="classify">
+      <img>
+      <form>
+  <h2>Classify <span><span rel="seen"></span> / <span rel="total"></span> (<span rel="percent"></span>%) done so far...</span></h2>
+        <input type="hidden" name="id">
+        <div>
+          <label>Tags</label>
+          <input type="text" name="tags">
+        </div>
+        <div>
+          <pre></pre>
+        </div>
+        <div>
+          <button>Classify!</button>
+        </div>
+      </form>
+    </div>
+  </template>
+
+  <footer>
+    <p>Copyright &copy; 2021 Hunt Productions, Inc.</p>
+  </footer>
+</body>
+</html>
